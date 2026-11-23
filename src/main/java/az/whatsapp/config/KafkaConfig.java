@@ -1,6 +1,7 @@
 package az.whatsapp.config;
 
 import az.whatsapp.dto.event.MessageCreatedEvent;
+import az.whatsapp.dto.event.ReceiptAdvancedEvent;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
@@ -30,7 +31,8 @@ public class KafkaConfig {
     /** Which topic an outbox row of a given event type goes to. */
     public static String topicFor(String eventType) {
         return switch (eventType) {
-            case MessageCreatedEvent.TYPE -> MESSAGE_EVENTS_TOPIC;
+            // Same topic and key: a receipt is consumed after the message it acknowledges.
+            case MessageCreatedEvent.TYPE, ReceiptAdvancedEvent.TYPE -> MESSAGE_EVENTS_TOPIC;
             default -> throw new IllegalArgumentException("No topic for event type " + eventType);
         };
     }

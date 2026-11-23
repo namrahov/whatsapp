@@ -95,11 +95,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         long userId = userId(session);
+        String deviceId = (String) session.getAttributes().get(UserIdHandshakeInterceptor.DEVICE_ID_ATTRIBUTE);
         try {
             switch (frame.type()) {
                 case "SEND" -> handleSend(session, userId, frame);
-                case "ACK" -> receipts.markDelivered(userId, requireMessageId(frame));
-                case "READ" -> receipts.markRead(userId, requireMessageId(frame));
+                case "ACK" -> receipts.markDelivered(userId, deviceId, requireConversationId(frame),
+                        requireUpToSequence(frame));
+                case "READ" -> receipts.markRead(userId, deviceId, requireConversationId(frame),
+                        requireUpToSequence(frame));
                 default -> reply(session, Frames.Error.of(frame, 400, "Unknown type " + frame.type(), false));
             }
         } catch (ResponseStatusException e) {
@@ -132,11 +135,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         reply(session, Frames.Sent.of(result.message(), result.duplicate()));
     }
 
-    private static long requireMessageId(ClientFrame frame) {
-        if (frame.messageId() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "messageId is required");
+    private static long requireConversationId(ClientFrame frame) {
+        if (frame.conversationId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "conversationId is required");
         }
-        return frame.messageId();
+        return frame.conversationId();
+    }
+
+    private static long requireUpToSequence(ClientFrame frame) {
+        if (frame.upToSequence() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "upToSequence is required");
+        }
+        return frame.upToSequence();
     }
 
     private void reply(WebSocketSession session, Object frame) {

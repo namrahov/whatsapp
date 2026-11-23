@@ -1,7 +1,9 @@
 package az.whatsapp.gateway;
 
 import az.whatsapp.dto.event.MessageCreatedEvent;
+import az.whatsapp.dto.event.ReceiptAdvancedEvent;
 import az.whatsapp.entity.MessageEntity;
+import az.whatsapp.entity.ReceiptKind;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -10,19 +12,24 @@ import java.util.UUID;
  * The JSON frames of the WebSocket protocol.
  * <pre>
  * client → server  {"type":"SEND","conversationId":1,"clientMessageId":"uuid","payload":"base64"}
- *                  {"type":"ACK","messageId":10}     DELIVERED: stored on the device
- *                  {"type":"READ","messageId":10}    READ: opened by the user
- * server → client  {"type":"SENT",...}               durable acceptance of a SEND
- *                  {"type":"MESSAGE",...}            a new message in one of the user's conversations
- *                  {"type":"ERROR",...}              a frame was rejected; retryable=true means resend as is
+ *                  {"type":"ACK","conversationId":1,"upToSequence":5}    this device stored everything up to 5
+ *                  {"type":"READ","conversationId":1,"upToSequence":5}   the user has seen everything up to 5
+ * server → client  {"type":"SENT",...}      durable acceptance of a SEND
+ *                  {"type":"MESSAGE",...}   a new message in one of the user's conversations
+ *                  {"type":"RECEIPT",...}   a delivery/read cursor moved (userId null = all members of a group)
+ *                  {"type":"ERROR",...}     a frame was rejected; retryable=true means resend it as is
  * </pre>
+ * Client rules: show messages by sequenceNumber, not arrival order; drop a messageId already stored. If a
+ * sequence is missing (5 then 7), wait briefly, then fetch {@code GET /messages?afterSequence=5}. ACK only what
+ * is stored locally, cumulatively. A READ receipt up to N also means DELIVERED up to N.
  */
 public final class Frames {
 
     private Frames() {
     }
 
-    public record ClientFrame(String type, Long conversationId, UUID clientMessageId, String payload, Long messageId) {
+    public record ClientFrame(String type, Long conversationId, UUID clientMessageId, String payload,
+                              Long upToSequence) {
     }
 
     public record Sent(String type, long messageId, long conversationId, UUID clientMessageId, long sequenceNumber,
@@ -34,7 +41,6 @@ public final class Frames {
         }
     }
 
-    /** Clients display by sequenceNumber, not arrival order, and drop a messageId they already have. */
     public record Message(String type, long messageId, long conversationId, long senderId, long sequenceNumber,
                           String payload, Instant createdAt) {
 
@@ -44,12 +50,20 @@ public final class Frames {
         }
     }
 
-    public record Error(String type, UUID clientMessageId, Long messageId, int status, String reason,
+    /** @param userId whose cursor moved; {@code null} = every member of the group has reached upToSequence */
+    public record Receipt(String type, long conversationId, Long userId, ReceiptKind kind, long upToSequence) {
+
+        public static Receipt of(ReceiptAdvancedEvent event) {
+            return new Receipt("RECEIPT", event.conversationId(), event.userId(), event.kind(), event.upToSequence());
+        }
+    }
+
+    public record Error(String type, UUID clientMessageId, Long conversationId, int status, String reason,
                         boolean retryable) {
 
         public static Error of(ClientFrame frame, int status, String reason, boolean retryable) {
             return new Error("ERROR", frame == null ? null : frame.clientMessageId(),
-                    frame == null ? null : frame.messageId(), status, reason, retryable);
+                    frame == null ? null : frame.conversationId(), status, reason, retryable);
         }
     }
 }
