@@ -7,6 +7,9 @@ spring:
     password: Genius33Frozen
     hikari:
       maximum-pool-size: 10
+      # Fail fast when PostgreSQL is down instead of holding the thread for the 30 s default:
+      # the client gets a retryable error and resends with the same clientMessageId.
+      connection-timeout: 3000
   jpa:
     open-in-view: false
     hibernate:
@@ -18,9 +21,35 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6381}
+      # Redis answers in well under a millisecond; a dead Redis must not hold web/WebSocket threads for 60 s.
+      timeout: 200ms
+      connect-timeout: 200ms
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      # Wait for all in-sync replicas; idempotence stops broker-side duplicates on producer retries.
+      acks: all
+      properties:
+        enable.idempotence: true
+        # send() blocks up to this long when the broker is unreachable (default 60 s).
+        max.block.ms: 5000
+    consumer:
+      # A new consumer group starts from the beginning, so no event published before it existed is skipped.
+      auto-offset-reset: earliest
 
 server:
   port: ${SERVER_PORT:8081}
+
+whatsapp:
+  registry:
+    # A user's connection-registry entry expires this long after its gateway instance stops refreshing it
+    # (instance crashed). Refreshed every ttl/3 while the instance is alive.
+    ttl: ${REGISTRY_TTL:90s}
+    refresh-interval-ms: ${REGISTRY_REFRESH_INTERVAL_MS:30000}
 
 management:
   endpoints:
