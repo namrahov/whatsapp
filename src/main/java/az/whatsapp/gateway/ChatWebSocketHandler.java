@@ -2,6 +2,7 @@ package az.whatsapp.gateway;
 
 import az.whatsapp.gateway.Frames.ClientFrame;
 import az.whatsapp.service.MessageService;
+import az.whatsapp.service.PresenceService;
 import az.whatsapp.service.ReceiptService;
 import az.whatsapp.service.RetryableErrors;
 
@@ -40,15 +41,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final GatewayInstance gateway;
     private final MessageService messages;
     private final ReceiptService receipts;
+    private final PresenceService presence;
     private final JsonMapper json;
 
     public ChatWebSocketHandler(LocalSessions localSessions, ConnectionRegistry registry, GatewayInstance gateway,
-                                MessageService messages, ReceiptService receipts, JsonMapper json) {
+                                MessageService messages, ReceiptService receipts, PresenceService presence,
+                                JsonMapper json) {
         this.localSessions = localSessions;
         this.registry = registry;
         this.gateway = gateway;
         this.messages = messages;
         this.receipts = receipts;
+        this.presence = presence;
         this.json = json;
     }
 
@@ -73,16 +77,20 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         localSessions.remove(session.getId());
+        long userId = userId(session);
         try {
-            registry.unregister(userId(session), List.of(session.getId()));
+            registry.unregister(userId, List.of(session.getId()));
+            presence.recordLastSeen(userId);
         } catch (RuntimeException e) {
-            // The entry is dropped later: on a failed local delivery or when its TTL runs out.
+            // The entry is dropped later: when a lookup finds it on a dead gateway, or by its key TTL.
             log.debug("Could not unregister connection {}: {}", session.getId(), e.toString());
         }
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        // Any frame counts as a heartbeat (in memory only, see LocalSessions).
+        localSessions.touch(session.getId());
         ClientFrame frame;
         try {
             frame = json.readValue(message.getPayload(), ClientFrame.class);
@@ -98,6 +106,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String deviceId = (String) session.getAttributes().get(UserIdHandshakeInterceptor.DEVICE_ID_ATTRIBUTE);
         try {
             switch (frame.type()) {
+                // The reply lets the client notice a dead server or a half-open socket from its side too.
+                case "HEARTBEAT" -> reply(session, Frames.PONG);
                 case "SEND" -> handleSend(session, userId, frame);
                 case "ACK" -> receipts.markDelivered(userId, deviceId, requireConversationId(frame),
                         requireUpToSequence(frame));

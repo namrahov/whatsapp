@@ -1,5 +1,7 @@
 package az.whatsapp.controller;
 
+import az.whatsapp.service.OverloadedException;
+
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpHeaders;
@@ -25,5 +27,13 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "2")
                 .body(problem);
+    }
+
+    /** A capacity limit (e.g. the sync bulkhead during a reconnect storm). */
+    @ExceptionHandler(OverloadedException.class)
+    public ResponseEntity<ProblemDetail> overloaded(OverloadedException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()))
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage()));
     }
 }

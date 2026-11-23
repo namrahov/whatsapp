@@ -71,12 +71,29 @@ public class MessageService {
         }
     }
 
-    /** Messages after {@code afterSequence}, oldest first: used on reconnect and to repair gaps. */
-    public List<MessageEntity> after(long userId, long conversationId, long afterSequence, int limit) {
+    /**
+     * Messages after {@code afterSequence} (up to {@code untilSequence} if given), oldest first: the reconnect sync
+     * and the gap repair of a client that saw 5 and then 7.
+     * <p>
+     * Sequences have no permanent holes: a sequence is taken under the conversation row lock and released only by
+     * commit (the message is there) or rollback (the number is given back). And the lock makes commits happen in
+     * sequence order, so once 7 is visible, 6 is too. A gap a client sees is therefore always a lost or late push,
+     * never a missing message, and one repair request fills it.
+     */
+    public List<MessageEntity> after(long userId, long conversationId, long afterSequence, Long untilSequence,
+                                     int limit) {
         conversations.requireMember(conversationId, userId);
         int pageSize = Math.clamp(limit, 1, MAX_SYNC_LIMIT);
-        return messages.findByConversationIdAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(
-                conversationId, Math.max(0, afterSequence), Limit.of(pageSize));
+        long after = Math.max(0, afterSequence);
+        if (untilSequence == null) {
+            return messages.findByConversationIdAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(
+                    conversationId, after, Limit.of(pageSize));
+        }
+        if (untilSequence <= after) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "untilSequence must be greater than afterSequence");
+        }
+        return messages.findByConversationIdAndSequenceNumberGreaterThanAndSequenceNumberLessThanEqualOrderBySequenceNumberAsc(
+                conversationId, after, untilSequence, Limit.of(pageSize));
     }
 
     private MessageEntity insert(long senderId, long conversationId, UUID clientMessageId, byte[] payload) {

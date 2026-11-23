@@ -6,6 +6,7 @@ import az.whatsapp.entity.MessageEntity;
 import az.whatsapp.entity.ReceiptKind;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -14,7 +15,9 @@ import java.util.UUID;
  * client → server  {"type":"SEND","conversationId":1,"clientMessageId":"uuid","payload":"base64"}
  *                  {"type":"ACK","conversationId":1,"upToSequence":5}    this device stored everything up to 5
  *                  {"type":"READ","conversationId":1,"upToSequence":5}   the user has seen everything up to 5
- * server → client  {"type":"SENT",...}      durable acceptance of a SEND
+ *                  {"type":"HEARTBEAT"}                                  every ~15 s; silent sockets are closed
+ * server → client  {"type":"PONG"}          answer to HEARTBEAT
+ *                  {"type":"SENT",...}      durable acceptance of a SEND
  *                  {"type":"MESSAGE",...}   a new message in one of the user's conversations
  *                  {"type":"RECEIPT",...}   a delivery/read cursor moved (userId null = all members of a group)
  *                  {"type":"ERROR",...}     a frame was rejected; retryable=true means resend it as is
@@ -24,6 +27,9 @@ import java.util.UUID;
  * is stored locally, cumulatively. A READ receipt up to N also means DELIVERED up to N.
  */
 public final class Frames {
+
+    /** Answer to {"type":"HEARTBEAT"}, which clients send every ~15 s. */
+    public static final Map<String, String> PONG = Map.of("type", "PONG");
 
     private Frames() {
     }
