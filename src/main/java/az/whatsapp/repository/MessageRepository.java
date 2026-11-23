@@ -16,4 +16,8 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
     /** Reconnect / gap sync: everything after the client's last durably stored sequence, in order. */
     List<MessageEntity> findByConversationIdAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(
             long conversationId, long afterSequence, Limit limit);
+
+    /** Gap repair: exactly the missing range (afterSequence, untilSequence]. */
+    List<MessageEntity> findByConversationIdAndSequenceNumberGreaterThanAndSequenceNumberLessThanEqualOrderBySequenceNumberAsc(
+            long conversationId, long afterSequence, long untilSequence, Limit limit);
 }

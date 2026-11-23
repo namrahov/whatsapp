@@ -5,6 +5,7 @@ import az.whatsapp.dto.response.MessageResponse;
 import az.whatsapp.dto.response.SendMessageResponse;
 import az.whatsapp.security.CurrentUser;
 import az.whatsapp.service.MessageService;
+import az.whatsapp.service.SyncBulkhead;
 
 import jakarta.validation.Valid;
 
@@ -29,9 +30,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class MessageController {
 
     private final MessageService messages;
+    private final SyncBulkhead syncBulkhead;
 
-    public MessageController(MessageService messages) {
+    public MessageController(MessageService messages, SyncBulkhead syncBulkhead) {
         this.messages = messages;
+        this.syncBulkhead = syncBulkhead;
     }
 
     /** 201 when stored now, 200 when this was a retry of an already stored message (same ids returned). */
@@ -43,12 +46,18 @@ public class MessageController {
                 .body(SendMessageResponse.from(result.message(), result.duplicate()));
     }
 
-    /** Reconnect / gap repair: messages with sequence greater than {@code afterSequence}, oldest first. */
+    /**
+     * Reconnect sync ({@code afterSequence} only) or gap repair ({@code afterSequence} + {@code untilSequence}):
+     * messages in (afterSequence, untilSequence], oldest first. During a reconnect storm these queries are
+     * bounded by the sync bulkhead: beyond its limit the answer is 503 + Retry-After instead of a DB pile-up.
+     */
     @GetMapping("/api/conversations/{conversationId}/messages")
     public List<MessageResponse> after(@CurrentUser long userId, @PathVariable long conversationId,
                                        @RequestParam(defaultValue = "0") long afterSequence,
+                                       @RequestParam(required = false) Long untilSequence,
                                        @RequestParam(defaultValue = "50") int limit) {
-        return messages.after(userId, conversationId, afterSequence, limit).stream()
+        return syncBulkhead.run(() -> messages.after(userId, conversationId, afterSequence, untilSequence, limit))
+                .stream()
                 .map(MessageResponse::from)
                 .toList();
     }

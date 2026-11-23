@@ -34,4 +34,14 @@ public class GatewayInstance {
     public static String channelOf(String instanceId) {
         return CHANNEL_PREFIX + instanceId;
     }
+
+    /** Exists while the instance is alive (renewed with a TTL by InstanceLease). */
+    public static String leaseKeyOf(String instanceId) {
+        return CHANNEL_PREFIX + instanceId + ":alive";
+    }
+
+    /** Set once per Redis lifetime; its absence tells the instance that Redis lost its data. */
+    public static String markerKeyOf(String instanceId) {
+        return CHANNEL_PREFIX + instanceId + ":registered";
+    }
 }

@@ -7,7 +7,7 @@ per-conversation ordering, idempotent retries, ACKs, offline sync and presence. 
 Stack: Java 26, Gradle, Spring Boot 4.1, JPA, PostgreSQL, Liquibase, Kafka, Redis, Spring WebSocket
 (same as `../twitter`).
 
-## Implemented so far (PDF sections 00–04, receipts from 13)
+## Implemented so far (PDF sections 00–04, 07–10, receipts from 13)
 
 ```
 Client A ──WS/REST──> Message Service ── one transaction ──> conversations.last_sequence + 1
@@ -42,8 +42,27 @@ Client A ──WS/REST──> Message Service ── one transaction ──> con
   - A cursor that moves writes a `ReceiptAdvanced` event to the outbox; the worker pushes a `RECEIPT` frame.
     1-to-1: to both members. Group: only "delivered to all / read by all" (the minimum over members) goes to
     everyone, a member's own read cursor goes to their other devices; detail via `GET .../receipts`.
-- **Client rules**: display by sequence; drop a `messageId` already stored; on a gap (5 then 7) wait briefly,
-  then fetch `afterSequence=5`; the server does not redeliver unacknowledged pushes.
+- **07 online ordering and gaps**: clients display by sequence, not arrival order, with a reorder buffer, and
+  repair a gap (5 then 7) after a short wait with `GET .../messages?afterSequence=5&untilSequence=6`. Sequences
+  have no permanent holes (taken under the row lock, commits happen in sequence order), so a gap is always a lost
+  or late push. Reference client code with tests: `src/test/java/az/whatsapp/client/ReorderBuffer.java`.
+  The server does not redeliver unacknowledged pushes.
+- **08–09 presence**: clients send `{"type":"HEARTBEAT"}` every ~15 s (answer `PONG`). The gateway keeps "last
+  seen" per connection in memory only, so heartbeats cost no Redis write, and closes sockets silent for 45 s
+  (half-open). Liveness in Redis is one **lease per gateway** (`ws:instance:<id>:alive`, 30 s TTL, renewed every
+  10 s), not one key per connection: a connection is live while its gateway's lease is.
+  - Online = at least one connection on a live gateway (any device).
+  - Offline is seen at once on a clean close, after the lease TTL on a gateway crash, after the idle timeout on
+    a half-open socket. That lag is accepted on purpose.
+  - Stale registry entries of dead gateways are removed when a lookup meets them.
+  - If Redis loses its data, each gateway notices (marker key gone) and re-registers its connections.
+  - `GET /api/presence?userIds=` only shows people who share a conversation with the caller.
+- **10 reconnect storm**: handshake admission control. A full gateway answers `503`; over the handshake rate
+  (token bucket, 200/s) or over 5 live connections per user it answers `429`. Sync queries run behind a bulkhead
+  (20 at once, else `503`). Every rejection has a **randomised** `Retry-After`, so rejected clients do not all
+  return in the same second. Clients add exponential backoff with full jitter on top:
+  `delay = Retry-After + random(0, min(30 s, 1 s * 2^attempt))`. Reference:
+  `src/test/java/az/whatsapp/client/ReconnectBackoff.java`.
 
 Tables: `users`, `conversations`, `conversation_members`, `messages`, `device_sync`, `conversation_read_state`,
 `outbox`.
@@ -73,10 +92,11 @@ Payloads are ciphertext, Base64-encoded.
 | POST | `/api/conversations/group` | `{title, memberIds}` — up to 1000 members |
 | GET | `/api/conversations` | `lastSequence`, `lastReadSequence` (unread = difference), with *device* also `lastReceivedSequence` (sync start) |
 | POST | `/api/conversations/{id}/messages` | `{clientMessageId, payload}` — 201 new, 200 retry |
-| GET | `/api/conversations/{id}/messages?afterSequence=&limit=` | sync, oldest first, max 100 |
+| GET | `/api/conversations/{id}/messages?afterSequence=&untilSequence=&limit=` | sync / gap repair, oldest first, max 100 |
 | POST | `/api/conversations/{id}/delivered` | *device* · `{upToSequence}` — cumulative ACK |
 | POST | `/api/conversations/{id}/read` | *device* · `{upToSequence}` — cumulative READ |
 | GET | `/api/conversations/{id}/receipts` | per-member cursors + `deliveredToAllUpTo`, `readByAllUpTo` |
+| GET | `/api/presence?userIds=2,3` | `online`, `lastSeenAt`; only users sharing a conversation with the caller |
 
 WebSocket `ws://localhost:8081/ws` (handshake headers `X-User-Id` and `X-Device-Id`; one socket = one device):
 
@@ -88,7 +108,10 @@ WebSocket `ws://localhost:8081/ws` (handshake headers `X-User-Id` and `X-Device-
 -> {"type":"READ","conversationId":1,"upToSequence":1}     seen up to 1
 <- {"type":"RECEIPT","conversationId":1,"userId":2,"kind":"READ","upToSequence":1}   userId null = all members
 <- {"type":"ERROR","status":409,"reason":"...","retryable":false}
+-> {"type":"HEARTBEAT"}     <- {"type":"PONG"}                every ~15 s
 ```
+
+A rejected handshake answers `429`/`503` with `Retry-After` and opens no socket.
 
 ## Authentication (development)
 

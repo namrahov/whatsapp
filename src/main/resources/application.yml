@@ -46,10 +46,27 @@ server:
 
 whatsapp:
   registry:
-    # A user's connection-registry entry expires this long after its gateway instance stops refreshing it
-    # (instance crashed). Refreshed every ttl/3 while the instance is alive.
-    ttl: ${REGISTRY_TTL:90s}
-    refresh-interval-ms: ${REGISTRY_REFRESH_INTERVAL_MS:30000}
+    # Liveness of a connection comes from its gateway's lease (below), not from this TTL. The TTL is only a
+    # safety net that removes registry keys of crashed gateways nobody looked at; refreshed every ttl/3.
+    ttl: ${REGISTRY_TTL:1h}
+    refresh-interval-ms: ${REGISTRY_REFRESH_INTERVAL_MS:1200000}
+  gateway:
+    # One Redis write per gateway per renew interval, whatever its number of connections. A crashed gateway's
+    # connections count as offline once its lease expires: presence lags a crash by up to lease-ttl.
+    lease-ttl: ${GATEWAY_LEASE_TTL:30s}
+    lease-renew-interval-ms: ${GATEWAY_LEASE_RENEW_INTERVAL_MS:10000}
+    # Clients send {"type":"HEARTBEAT"} every ~15 s; tracked in this gateway's memory only (no Redis write).
+    # A connection silent for longer is half-open (phone lost network without closing) and is closed.
+    idle-timeout: ${GATEWAY_IDLE_TIMEOUT:45s}
+    idle-sweep-interval-ms: ${GATEWAY_IDLE_SWEEP_INTERVAL_MS:10000}
+  admission:
+    # Reconnect storm protection. Rejected handshakes / syncs get 429 or 503 with a randomised Retry-After.
+    handshakes-per-second: ${ADMISSION_HANDSHAKES_PER_SECOND:200}
+    max-connections-per-instance: ${ADMISSION_MAX_CONNECTIONS_PER_INSTANCE:10000}
+    max-connections-per-user: ${ADMISSION_MAX_CONNECTIONS_PER_USER:5}
+    sync-max-concurrent: ${ADMISSION_SYNC_MAX_CONCURRENT:20}
+    retry-after-min: ${ADMISSION_RETRY_AFTER_MIN:2s}
+    retry-after-max: ${ADMISSION_RETRY_AFTER_MAX:10s}
 
 management:
   endpoints:
