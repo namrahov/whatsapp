@@ -83,8 +83,18 @@ public class ConversationService {
     /** 404 for both "no such conversation" and "not a member", so outsiders cannot probe which ids exist. */
     public void requireMember(long conversationId, long userId) {
         if (!members.existsById(new ConversationMemberId(conversationId, userId))) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
+            throw notFound();
         }
+    }
+
+    /** Like {@link #requireMember}, returning the conversation (its type decides who receipts go to). */
+    public ConversationEntity requireMembership(long conversationId, long userId) {
+        requireMember(conversationId, userId);
+        return conversations.findById(conversationId).orElseThrow(ConversationService::notFound);
+    }
+
+    private static ResponseStatusException notFound() {
+        return new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
     }
 
     private void requireUsersExist(Set<Long> ids) {

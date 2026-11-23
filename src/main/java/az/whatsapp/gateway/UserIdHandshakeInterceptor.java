@@ -1,5 +1,6 @@
 package az.whatsapp.gateway;
 
+import az.whatsapp.security.CurrentDeviceProvider;
 import az.whatsapp.security.CurrentUserProvider;
 
 import java.util.Map;
@@ -14,18 +15,22 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
 /**
- * Authenticates the WebSocket upgrade request with the same {@link CurrentUserProvider} as the REST API
- * (the X-User-Id header). A request that fails gets 401 and no socket is opened.
+ * Authenticates the WebSocket upgrade request with the same providers as the REST API: X-User-Id (401 if
+ * missing or invalid) and X-Device-Id (400). A request that fails gets no socket.
  */
 @Component
 public class UserIdHandshakeInterceptor implements HandshakeInterceptor {
 
     public static final String USER_ID_ATTRIBUTE = "userId";
+    public static final String DEVICE_ID_ATTRIBUTE = "deviceId";
 
     private final CurrentUserProvider currentUserProvider;
+    private final CurrentDeviceProvider currentDeviceProvider;
 
-    public UserIdHandshakeInterceptor(CurrentUserProvider currentUserProvider) {
+    public UserIdHandshakeInterceptor(CurrentUserProvider currentUserProvider,
+                                      CurrentDeviceProvider currentDeviceProvider) {
         this.currentUserProvider = currentUserProvider;
+        this.currentDeviceProvider = currentDeviceProvider;
     }
 
     @Override
@@ -36,7 +41,10 @@ public class UserIdHandshakeInterceptor implements HandshakeInterceptor {
             return false;
         }
         try {
-            attributes.put(USER_ID_ATTRIBUTE, currentUserProvider.requireUserId(servletRequest.getServletRequest()));
+            var servlet = servletRequest.getServletRequest();
+            attributes.put(USER_ID_ATTRIBUTE, currentUserProvider.requireUserId(servlet));
+            // A socket is one device: its ACKs move that device's delivery cursor.
+            attributes.put(DEVICE_ID_ATTRIBUTE, currentDeviceProvider.requireDeviceId(servlet));
             return true;
         } catch (ResponseStatusException e) {
             response.setStatusCode(e.getStatusCode());

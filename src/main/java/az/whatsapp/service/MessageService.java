@@ -1,6 +1,7 @@
 package az.whatsapp.service;
 
 import az.whatsapp.dto.event.MessageCreatedEvent;
+import az.whatsapp.entity.ConversationEntity;
 import az.whatsapp.entity.MessageEntity;
 import az.whatsapp.repository.ConversationSequenceRepository;
 import az.whatsapp.repository.MessageRepository;
@@ -34,14 +35,17 @@ public class MessageService {
     private final ConversationSequenceRepository sequences;
     private final ConversationService conversations;
     private final OutboxService outbox;
+    private final ReceiptService receipts;
     private final TransactionTemplate tx;
 
     public MessageService(MessageRepository messages, ConversationSequenceRepository sequences,
-                          ConversationService conversations, OutboxService outbox, TransactionTemplate tx) {
+                          ConversationService conversations, OutboxService outbox, ReceiptService receipts,
+                          TransactionTemplate tx) {
         this.messages = messages;
         this.sequences = sequences;
         this.conversations = conversations;
         this.outbox = outbox;
+        this.receipts = receipts;
         this.tx = tx;
     }
 
@@ -76,7 +80,7 @@ public class MessageService {
     }
 
     private MessageEntity insert(long senderId, long conversationId, UUID clientMessageId, byte[] payload) {
-        conversations.requireMember(conversationId, senderId);
+        ConversationEntity conversation = conversations.requireMembership(conversationId, senderId);
         long sequence = sequences.next(conversationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
         MessageEntity saved = messages.saveAndFlush(
@@ -84,6 +88,7 @@ public class MessageService {
         // Kafka key = conversation id: every event of one conversation goes to the same partition, in order.
         outbox.append(UUID.randomUUID(), MessageCreatedEvent.TYPE, saved.getId(), String.valueOf(conversationId),
                 MessageCreatedEvent.from(saved));
+        receipts.onOwnMessage(conversation, senderId, sequence);
         return saved;
     }
 
