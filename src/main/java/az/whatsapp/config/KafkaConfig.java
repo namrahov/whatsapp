@@ -31,7 +31,10 @@ public class KafkaConfig {
     /** Which topic an outbox row of a given event type goes to. */
     public static String topicFor(String eventType) {
         return switch (eventType) {
-            // Same topic and key: a receipt is consumed after the message it acknowledges.
+            // Same topic and key: one partition per conversation. Usually a receipt is consumed after the message it
+            // acknowledges, but not always: publishers on several instances may claim rows of one conversation in
+            // parallel, and failed sends are retried later. Nothing depends on it: clients order messages by
+            // sequence and apply receipts as cursors (max), so a receipt that arrives early is still correct.
             case MessageCreatedEvent.TYPE, ReceiptAdvancedEvent.TYPE -> MESSAGE_EVENTS_TOPIC;
             default -> throw new IllegalArgumentException("No topic for event type " + eventType);
         };
