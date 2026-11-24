@@ -59,6 +59,17 @@ whatsapp:
     # A connection silent for longer is half-open (phone lost network without closing) and is closed.
     idle-timeout: ${GATEWAY_IDLE_TIMEOUT:45s}
     idle-sweep-interval-ms: ${GATEWAY_IDLE_SWEEP_INTERVAL_MS:10000}
+  retention:
+    # Example policy for the interview: messages are kept 30 days on the server, delivered or not.
+    message-ttl: ${RETENTION_MESSAGE_TTL:30d}
+    outbox-ttl: ${RETENTION_OUTBOX_TTL:7d}
+    batch-size: ${RETENTION_BATCH_SIZE:1000}
+    max-batches-per-run: ${RETENTION_MAX_BATCHES_PER_RUN:50}
+    interval-ms: ${RETENTION_INTERVAL_MS:600000}
+  messages:
+    # Product decision: how long after sending the sender may still edit / delete for everyone.
+    edit-window: ${MESSAGES_EDIT_WINDOW:15m}
+    delete-window: ${MESSAGES_DELETE_WINDOW:48h}
   admission:
     # Reconnect storm protection. Rejected handshakes / syncs get 429 or 503 with a randomised Retry-After.
     handshakes-per-second: ${ADMISSION_HANDSHAKES_PER_SECOND:200}

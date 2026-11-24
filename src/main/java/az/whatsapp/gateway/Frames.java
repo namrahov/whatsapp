@@ -1,5 +1,6 @@
 package az.whatsapp.gateway;
 
+import az.whatsapp.dto.event.MessageChangedEvent;
 import az.whatsapp.dto.event.MessageCreatedEvent;
 import az.whatsapp.dto.event.ReceiptAdvancedEvent;
 import az.whatsapp.entity.MessageEntity;
@@ -19,6 +20,7 @@ import java.util.UUID;
  * server → client  {"type":"PONG"}          answer to HEARTBEAT
  *                  {"type":"SENT",...}      durable acceptance of a SEND
  *                  {"type":"MESSAGE",...}   a new message in one of the user's conversations
+ *                  {"type":"MESSAGE_CHANGED",...} an edit or delete-for-everyone (apply if version is newer)
  *                  {"type":"RECEIPT",...}   a delivery/read cursor moved (userId null = all members of a group)
  *                  {"type":"ERROR",...}     a frame was rejected; retryable=true means resend it as is
  * </pre>
@@ -53,6 +55,17 @@ public final class Frames {
         public static Message of(MessageCreatedEvent event) {
             return new Message("MESSAGE", event.messageId(), event.conversationId(), event.senderId(),
                     event.sequenceNumber(), event.payload(), event.createdAt());
+        }
+    }
+
+    /** An edit or delete-for-everyone. Apply only if {@code version} is higher than the one shown. */
+    public record MessageChanged(String type, long messageId, long conversationId, long sequenceNumber, int version,
+                                 long changeNumber, boolean deleted, String payload, Instant changedAt) {
+
+        public static MessageChanged of(MessageChangedEvent event) {
+            return new MessageChanged("MESSAGE_CHANGED", event.messageId(), event.conversationId(),
+                    event.sequenceNumber(), event.version(), event.changeNumber(), event.deleted(), event.payload(),
+                    event.changedAt());
         }
     }
 

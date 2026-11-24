@@ -54,6 +54,18 @@ class ReorderBufferTest {
     }
 
     @Test
+    void skipsSequencesDeletedByRetention() {
+        buffer.offer(105, "m105");
+        buffer.offer(106, "m106");
+
+        // The server answers the repair with X-First-Available-Sequence: 105 (101..104 expired).
+        assertThat(buffer.skipTo(105)).containsExactly("m105", "m106");
+        assertThat(buffer.lastShown()).isEqualTo(106);
+        assertThat(buffer.overdueGap()).isEmpty();
+        assertThat(buffer.skipTo(50)).isEmpty();
+    }
+
+    @Test
     void noGapOnceFilled() {
         buffer.offer(102, "m102");
         buffer.offer(101, "m101");

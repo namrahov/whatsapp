@@ -1,6 +1,7 @@
 package az.whatsapp.worker;
 
 import az.whatsapp.config.KafkaConfig;
+import az.whatsapp.dto.event.MessageChangedEvent;
 import az.whatsapp.dto.event.MessageCreatedEvent;
 import az.whatsapp.dto.event.ReceiptAdvancedEvent;
 import az.whatsapp.gateway.DeliveryRouter;
@@ -43,6 +44,7 @@ public class MessageDeliveryWorker {
     public void onEvent(String payload, @Header(KafkaConfig.EVENT_TYPE_HEADER) String eventType) {
         switch (eventType) {
             case MessageCreatedEvent.TYPE -> onMessage(json.readValue(payload, MessageCreatedEvent.class));
+            case MessageChangedEvent.TYPE -> onChange(json.readValue(payload, MessageChangedEvent.class));
             case ReceiptAdvancedEvent.TYPE -> onReceipt(json.readValue(payload, ReceiptAdvancedEvent.class));
             default -> {
                 // unknown type from a newer version: skip rather than block the partition
@@ -56,6 +58,14 @@ public class MessageDeliveryWorker {
             if (memberId != event.senderId()) {
                 router.deliver(memberId, frame);
             }
+        }
+    }
+
+    /** To every member, the sender included: the sender's other devices must show the edit / tombstone too. */
+    private void onChange(MessageChangedEvent event) {
+        String frame = json.writeValueAsString(Frames.MessageChanged.of(event));
+        for (long memberId : members.findUserIds(event.conversationId())) {
+            router.deliver(memberId, frame);
         }
     }
 

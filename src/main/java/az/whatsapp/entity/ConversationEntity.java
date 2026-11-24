@@ -38,6 +38,14 @@ public class ConversationEntity {
     @Column(name = "last_sequence", nullable = false, insertable = false, updatable = false)
     private long lastSequence;
 
+    /** Everything before this sequence was deleted by retention. Written only by RetentionRepository. */
+    @Column(name = "first_available_sequence", nullable = false, insertable = false, updatable = false)
+    private long firstAvailableSequence = 1;
+
+    /** Counter of edits/deletes in this conversation. Written only by an atomic UPDATE ... RETURNING. */
+    @Column(name = "last_change", nullable = false, insertable = false, updatable = false)
+    private long lastChange;
+
     @Column(name = "created_by", nullable = false, updatable = false)
     private long createdBy;
 
@@ -79,6 +87,14 @@ public class ConversationEntity {
 
     public long getLastSequence() {
         return lastSequence;
+    }
+
+    public long getFirstAvailableSequence() {
+        return firstAvailableSequence;
+    }
+
+    public long getLastChange() {
+        return lastChange;
     }
 
     public long getCreatedBy() {

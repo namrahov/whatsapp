@@ -32,6 +32,11 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Integration tests (*IT, run with ./gradlew integrationTest) start real PostgreSQL, Kafka and Redis in Docker.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testImplementation 'org.testcontainers:testcontainers-kafka'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -49,7 +54,7 @@ tasks.named('test') {
 }
 
 tasks.register('integrationTest', Test) {
-    description = 'Runs PostgreSQL integration tests against whatsapp_test.'
+    description = 'Runs integration tests (*IT) against PostgreSQL, Kafka and Redis containers (needs Docker).'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
