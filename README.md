@@ -7,7 +7,7 @@ per-conversation ordering, idempotent retries, ACKs, offline sync and presence. 
 Stack: Java 26, Gradle, Spring Boot 4.1, JPA, PostgreSQL, Liquibase, Kafka, Redis, Spring WebSocket
 (same as `../twitter`).
 
-## Implemented so far (PDF sections 00–04, 07–10, receipts from 13)
+## Implemented so far (PDF sections 00–04, 07–10, 15, 21, receipts from 13)
 
 ```
 Client A ──WS/REST──> Message Service ── one transaction ──> conversations.last_sequence + 1
@@ -63,6 +63,17 @@ Client A ──WS/REST──> Message Service ── one transaction ──> con
   return in the same second. Clients add exponential backoff with full jitter on top:
   `delay = Retry-After + random(0, min(30 s, 1 s * 2^attempt))`. Reference:
   `src/test/java/az/whatsapp/client/ReconnectBackoff.java`.
+- **15 retention**: a background job deletes messages older than 30 days (example policy, delivered or not) in
+  batches of 1000 with `SKIP LOCKED`, and raises the conversation's `first_available_sequence`. Sync answers carry
+  `X-First-Available-Sequence` (also in `GET /api/conversations`), so a client behind it skips the expired range
+  instead of waiting for it (`ReorderBuffer.skipTo`). Expiry is not delivery: cursors are not touched. The same job
+  deletes outbox events published more than 7 days ago.
+- **21 edit / delete for everyone**: only the sender, within 15 min (edit) / 48 h (delete). The message keeps its
+  sequence; a delete leaves a tombstone (no payload), so it is not mistaken for a gap.
+  - `version` per message (+1 per change): clients ignore an event older than what they show.
+  - `change_number` per conversation (`conversations.last_change`): an offline device catches up with
+    `GET .../changes?afterChange=N`, because edits do not move the sequence it syncs by.
+  - Members (the sender's other devices too) get a `MESSAGE_CHANGED` frame through outbox → Kafka.
 
 Tables: `users`, `conversations`, `conversation_members`, `messages`, `device_sync`, `conversation_read_state`,
 `outbox`.
@@ -77,8 +88,12 @@ Tables: `users`, `conversations`, `conversation_members`, `messages`, `device_sy
 
 ```
 ./gradlew bootRun
-./gradlew test
+./gradlew test              # unit tests
+./gradlew integrationTest   # *IT: real PostgreSQL, Kafka and Redis in Testcontainers (Docker must be running)
 ```
+
+The integration tests cover sequences and idempotency (including concurrent senders and concurrent retries of one
+message), receipt cursors and group aggregates, retention, and edit/delete.
 
 ## API
 
@@ -92,7 +107,10 @@ Payloads are ciphertext, Base64-encoded.
 | POST | `/api/conversations/group` | `{title, memberIds}` — up to 1000 members |
 | GET | `/api/conversations` | `lastSequence`, `lastReadSequence` (unread = difference), with *device* also `lastReceivedSequence` (sync start) |
 | POST | `/api/conversations/{id}/messages` | `{clientMessageId, payload}` — 201 new, 200 retry |
-| GET | `/api/conversations/{id}/messages?afterSequence=&untilSequence=&limit=` | sync / gap repair, oldest first, max 100 |
+| GET | `/api/conversations/{id}/messages?afterSequence=&untilSequence=&limit=` | sync / gap repair, oldest first, max 100; header `X-First-Available-Sequence` |
+| PATCH | `/api/conversations/{id}/messages/{messageId}` | `{payload}` — edit (sender, 15 min) |
+| DELETE | `/api/conversations/{id}/messages/{messageId}` | delete for everyone (sender, 48 h), leaves a tombstone |
+| GET | `/api/conversations/{id}/changes?afterChange=&limit=` | edits/deletes after the client's change cursor |
 | POST | `/api/conversations/{id}/delivered` | *device* · `{upToSequence}` — cumulative ACK |
 | POST | `/api/conversations/{id}/read` | *device* · `{upToSequence}` — cumulative READ |
 | GET | `/api/conversations/{id}/receipts` | per-member cursors + `deliveredToAllUpTo`, `readByAllUpTo` |
@@ -107,6 +125,7 @@ WebSocket `ws://localhost:8081/ws` (handshake headers `X-User-Id` and `X-Device-
 -> {"type":"ACK","conversationId":1,"upToSequence":1}      stored on this device up to 1
 -> {"type":"READ","conversationId":1,"upToSequence":1}     seen up to 1
 <- {"type":"RECEIPT","conversationId":1,"userId":2,"kind":"READ","upToSequence":1}   userId null = all members
+<- {"type":"MESSAGE_CHANGED","messageId":1,"sequenceNumber":1,"version":2,"changeNumber":1,"deleted":false,"payload":"..."}
 <- {"type":"ERROR","status":409,"reason":"...","retryable":false}
 -> {"type":"HEARTBEAT"}     <- {"type":"PONG"}                every ~15 s
 ```

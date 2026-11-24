@@ -17,6 +17,10 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
     List<MessageEntity> findByConversationIdAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(
             long conversationId, long afterSequence, Limit limit);
 
+    /** Edits and deletes after the client's change cursor, in the order they happened. */
+    List<MessageEntity> findByConversationIdAndChangeNumberGreaterThanOrderByChangeNumberAsc(
+            long conversationId, long afterChange, Limit limit);
+
     /** Gap repair: exactly the missing range (afterSequence, untilSequence]. */
     List<MessageEntity> findByConversationIdAndSequenceNumberGreaterThanAndSequenceNumberLessThanEqualOrderBySequenceNumberAsc(
             long conversationId, long afterSequence, long untilSequence, Limit limit);

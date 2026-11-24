@@ -11,7 +11,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
-/** Immutable once written: one row per logical message, holding ciphertext only. */
+/**
+ * One row per logical message, holding ciphertext only. JPA only inserts it: edits and deletes are atomic SQL
+ * updates (MessageChangeRepository), so every JPA column is read-only after insert.
+ */
 @Entity
 @Table(name = "messages")
 public class MessageEntity {
@@ -32,11 +35,26 @@ public class MessageEntity {
     @Column(name = "sequence_number", nullable = false, updatable = false)
     private long sequenceNumber;
 
-    @Column(name = "encrypted_payload", nullable = false, updatable = false)
+    /** Null once deleted for everyone. */
+    @Column(name = "encrypted_payload", updatable = false)
     private byte[] encryptedPayload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** 1 when created (the DB default), +1 per edit or delete. */
+    @Column(name = "version", nullable = false, insertable = false, updatable = false)
+    private int version = 1;
+
+    /** Position in the conversation's change stream; null if never edited or deleted. */
+    @Column(name = "change_number", insertable = false, updatable = false)
+    private Long changeNumber;
+
+    @Column(name = "edited_at", insertable = false, updatable = false)
+    private Instant editedAt;
+
+    @Column(name = "deleted_at", insertable = false, updatable = false)
+    private Instant deletedAt;
 
     protected MessageEntity() {
     }
@@ -78,5 +96,25 @@ public class MessageEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public Long getChangeNumber() {
+        return changeNumber;
+    }
+
+    public Instant getEditedAt() {
+        return editedAt;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
     }
 }

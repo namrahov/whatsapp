@@ -1,5 +1,6 @@
 package az.whatsapp.config;
 
+import az.whatsapp.dto.event.MessageChangedEvent;
 import az.whatsapp.dto.event.MessageCreatedEvent;
 import az.whatsapp.dto.event.ReceiptAdvancedEvent;
 
@@ -35,7 +36,7 @@ public class KafkaConfig {
             // acknowledges, but not always: publishers on several instances may claim rows of one conversation in
             // parallel, and failed sends are retried later. Nothing depends on it: clients order messages by
             // sequence and apply receipts as cursors (max), so a receipt that arrives early is still correct.
-            case MessageCreatedEvent.TYPE, ReceiptAdvancedEvent.TYPE -> MESSAGE_EVENTS_TOPIC;
+            case MessageCreatedEvent.TYPE, MessageChangedEvent.TYPE, ReceiptAdvancedEvent.TYPE -> MESSAGE_EVENTS_TOPIC;
             default -> throw new IllegalArgumentException("No topic for event type " + eventType);
         };
     }

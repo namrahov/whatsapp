@@ -62,6 +62,27 @@ public final class ReorderBuffer<T> {
         return Optional.of(new Gap(lastShown, pending.firstKey() - 1));
     }
 
+    /**
+     * The server said everything before {@code firstAvailableSequence} was deleted by retention (header
+     * X-First-Available-Sequence): stop waiting for those and show what was buffered after them.
+     *
+     * @return messages that can be shown now
+     */
+    public List<T> skipTo(long firstAvailableSequence) {
+        if (firstAvailableSequence - 1 <= lastShown) {
+            return List.of();
+        }
+        lastShown = firstAvailableSequence - 1;
+        pending.headMap(firstAvailableSequence).clear();
+        List<T> ready = new ArrayList<>();
+        while (!pending.isEmpty() && pending.firstKey() == lastShown + 1) {
+            ready.add(pending.pollFirstEntry().getValue());
+            lastShown++;
+        }
+        gapSince = pending.isEmpty() ? null : clock.instant();
+        return ready;
+    }
+
     public long lastShown() {
         return lastShown;
     }
